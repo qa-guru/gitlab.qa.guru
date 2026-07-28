@@ -1,0 +1,83 @@
+# GitLab CE Omnibus — memory-tuned for Box 3 (target ~10 Gi working set, 12 Gi hard cap)
+# GitLab 19.x · Apply from laptop: ./apply-gitlab-rb.sh (preserves OmniAuth block)
+
+external_url 'https://gitlab.qa.guru'
+
+# TLS via external nginx + certbot (not Omnibus Let's Encrypt)
+letsencrypt['enable'] = false
+
+# External nginx (same pattern as Jira/Confluence on this host)
+nginx['enable'] = false
+gitlab_workhorse['listen_network'] = "tcp"
+gitlab_workhorse['listen_addr'] = "0.0.0.0:8181"
+
+# Jira occupies :8080 on this host — move Puma off the collision
+puma['port'] = 8088
+
+# Puma / Sidekiq — keep RSS under cgroup budget
+puma['worker_processes'] = 2
+puma['per_worker_max_memory_mb'] = 1024
+sidekiq['concurrency'] = 5
+
+# Health checks default to :8092 — occupied on Box3 by Docker currency.niffler.dc.
+# Bind failure crashes Sidekiq at boot → cluster death-loop → CI stuck in created.
+sidekiq['health_checks_listen_address'] = '127.0.0.1'
+sidekiq['health_checks_listen_port'] = 8094
+
+# Omnibus has no sidekiq['memory_killer_*'] keys — use env (KB). Soft 2.5 GiB.
+gitlab_rails['env'] = {
+  'SIDEKIQ_MEMORY_KILLER_MAX_RSS' => '2500000',
+}
+
+# PostgreSQL (bundled)
+postgresql['shared_buffers'] = "256MB"
+postgresql['max_connections'] = 200
+postgresql['work_mem'] = "8MB"
+
+# Gitaly
+gitaly['configuration'] = {
+  concurrency: [
+    {
+      'rpc' => "/gitaly.SmartHTTPService/PostReceivePack",
+      'max_per_repo' => 3,
+    },
+  ],
+}
+
+# Backup layout (repos default: /var/opt/gitlab/git-data/repositories)
+gitlab_rails['backup_path'] = "/var/opt/gitlab/backups"
+gitlab_rails['backup_keep_time'] = 604800  # 7 days
+
+# Trust external nginx TLS termination (plain IPs — GitLab 19 IPAddr)
+gitlab_rails['trusted_proxies'] = ['89.248.193.83', '212.92.101.15']
+gitlab_rails['nginx'] = {
+  'real_ip_trusted_addresses' => ['127.0.0.1', '89.248.193.83', '212.92.101.15'],
+  'real_ip_header' => 'X-Forwarded-For',
+  'real_ip_recursive' => true,
+}
+
+# Reduce Prometheus footprint on constrained host
+prometheus_monitoring['enable'] = false
+
+# Registry off v1
+registry['enable'] = false
+
+# GitLab Pages off v1
+pages_external_url nil
+gitlab_pages['enable'] = false
+
+# GitHub OmniAuth — applied by enable-github-omniauth.sh (secrets in /etc/gitlab/github-oauth.env)
+# BEGIN github omniauth (managed)
+# gitlab_rails['omniauth_enabled'] = true
+# gitlab_rails['omniauth_allow_single_sign_on'] = ['github']
+# gitlab_rails['omniauth_block_auto_created_users'] = false
+# gitlab_rails['omniauth_auto_link_user'] = ['github']
+# gitlab_rails['omniauth_providers'] = [
+#   {
+#     'name' => 'github',
+#     'app_id' => 'FROM_ENV',
+#     'app_secret' => 'FROM_ENV',
+#     'args' => { 'scope' => 'user:email' }
+#   }
+# ]
+# END github omniauth (managed)

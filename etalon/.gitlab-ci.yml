@@ -1,0 +1,45 @@
+stages:
+  - test
+  - report
+
+variables:
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+  BASE_URL: "https://reference-app.autotests.ai/"
+  API_BASE_URL: "https://reference-app.autotests.ai/"
+
+.test_template: &test_template
+  stage: test
+  tags: [docker, java21, selenoid, box2]
+  image: eclipse-temurin:21-jdk
+  before_script:
+    - cd tests && chmod +x gradlew
+  artifacts:
+    when: always
+    paths: [tests/build/allure-results/]
+    expire_in: 14 days
+
+test:api:
+  <<: *test_template
+  script:
+    - ./gradlew testApi --no-daemon -DpyramidStand=reference_prod -DbaseUrl=${BASE_URL} -DapiBaseUrl=${API_BASE_URL} -Djunit.jupiter.execution.parallel.enabled=true -Djunit.jupiter.execution.parallel.config.strategy=fixed -Djunit.jupiter.execution.parallel.config.fixed.parallelism=5
+
+test:e2e:
+  <<: *test_template
+  allow_failure: true
+  script:
+    - ./gradlew testE2e --no-daemon -DpyramidStand=reference_prod -DbrowserVersion=148 -DbaseUrl=${BASE_URL} -DapiBaseUrl=${API_BASE_URL} -Djunit.jupiter.execution.parallel.enabled=true -Djunit.jupiter.execution.parallel.config.strategy=fixed -Djunit.jupiter.execution.parallel.config.fixed.parallelism=5 -DcloseBrowserAfterEach=true
+
+allure:report:
+  stage: report
+  tags: [docker, box2]
+  image: eclipse-temurin:21-jdk
+  needs: [test:api, test:e2e]
+  script:
+    - apt-get update -qq && apt-get install -y -qq wget unzip
+    - wget -q https://github.com/allure-framework/allure2/releases/download/2.29.0/allure-2.29.0.tgz -O /tmp/allure.tgz
+    - tar -xzf /tmp/allure.tgz -C /opt && ln -sf /opt/allure-2.29.0/bin/allure /usr/local/bin/allure
+    - allure generate tests/build/allure-results -o allure-report --clean
+  artifacts:
+    paths: [allure-report/]
+    expire_in: 14 days
+  when: always
