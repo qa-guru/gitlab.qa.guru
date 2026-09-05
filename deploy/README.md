@@ -78,17 +78,36 @@ Commands:
 
 Runners `box2-docker-1/2` poll **`https://gitlab.qa.guru`** (not internal workhorse `:8181`). Tags: `docker,java21,selenoid,box2`.
 
-## GitHub sign-in (OmniAuth)
+## Sign-in — Keycloak OIDC (P5)
 
-OAuth App in org **qa-guru** → callback `https://gitlab.qa.guru/users/auth/github/callback`.
+Phase `11.qa-guru-identity`, window P5. Everything runs from the laptop through [`oidc.py`](oidc.py); the client secret comes from `~/.config/auth-qa-guru/keycloak.env` and lands in `/etc/gitlab/oidc.env` (root 600). Nothing is printed and nothing is committed.
 
 ```bash
-# secrets (local, not in git):
-#   ~/.config/gitlab/github-oauth.env  → GITHUB_APP_ID / GITHUB_APP_SECRET
-./deploy/enable-github-omniauth.sh
+python3 deploy/oidc.py inventory              # gate: users + group members + tokens → ~/.config/gitlab/p5-inventory/
+python3 deploy/oidc.py link-identities        # dry run; --apply pre-seeds openid_connect identities
+python3 deploy/oidc.py seed-idp               # Keycloak: client secret check, github IdP
+python3 deploy/oidc.py configure              # gitlab.rb block + gitlab-ctl reconfigure
+python3 deploy/oidc.py login-check            # sign in as the pilot people, end to end
+python3 deploy/oidc.py verify                 # acceptance against the inventory floor
+python3 deploy/oidc.py break-glass            # root + runner tokens with the IdP stopped
 ```
 
-Policy on Box 3: SSO allowed, auto-create users, auto-link by email. Password login stays available.
+**Run `link-identities --apply` before `configure`.** GitLab's `auto_link_user` resolves an existing account by **primary email only** (`User.find_by(email:)` in `lib/gitlab/auth/o_auth/user.rb`). A person whose GitLab address differs from their Keycloak address would not be matched, and JIT would create a second account with a suffixed username. Pre-seeding the identity makes `find_by_uid_and_provider` hit first, so the existing account, its group membership and its history are kept.
+
+`uid_field` and `gitlab_username_claim` are both `preferred_username`, so JIT users get the bare handle — GitLab does not append a suffix the way Sonar does.
+
+## GitHub sign-in
+
+Currently still **direct** OmniAuth: OAuth App in org **qa-guru** → callback `https://gitlab.qa.guru/users/auth/github/callback`, secrets in `~/.config/gitlab/github-oauth.env`. Kept alive on purpose until brokering works — removing it first would leave GitHub users with no route.
+
+Target is brokering (GitHub → Keycloak → GitLab). It cannot be scripted: GitHub exposes no API to create or edit an OAuth App. To finish:
+
+1. New OAuth App in org `qa-guru`, callback `https://auth.qa.guru/realms/qaguru/broker/github/endpoint`.
+2. `KC_GITHUB_CLIENT_ID` / `KC_GITHUB_CLIENT_SECRET` into `~/.config/auth-qa-guru/keycloak.env`.
+3. `python3 deploy/oidc.py seed-idp` — enables the IdP and refreshes `/etc/keycloak/keycloak.env`.
+4. `python3 deploy/oidc.py disable-github-direct` — drops `github` from GitLab's providers.
+
+`enable-github-omniauth.sh` is **superseded**: its managed `gitlab.rb` block also assigned `omniauth_providers`, so two blocks would fight and the last assignment would win. `oidc.py configure` removes it and keeps a single block.
 
 ## Smoke
 
@@ -150,7 +169,8 @@ Notes:
 | [`install-gitlab-box3.sh`](install-gitlab-box3.sh) | Omnibus install + `gitlab.rb` + cgroup |
 | [`gitlab.rb.template`](gitlab.rb.template) | Memory-tuned Omnibus config (Sidekiq health `:8094`) |
 | [`apply-gitlab-rb.sh`](apply-gitlab-rb.sh) | Re-apply template → Box3 (keeps OmniAuth) |
-| [`enable-github-omniauth.sh`](enable-github-omniauth.sh) | GitHub OAuth → Omnibus OmniAuth |
+| [`oidc.py`](oidc.py) | P5 — Keycloak OIDC sign-in, account linking, acceptance, break-glass |
+| [`enable-github-omniauth.sh`](enable-github-omniauth.sh) | GitHub OAuth → Omnibus OmniAuth (**superseded by `oidc.py`**) |
 | [`configure-dns.sh`](configure-dns.sh) | Cloudflare A → Box2 edge |
 | [`configure-nginx-box3.sh`](configure-nginx-box3.sh) | TLS vhost on Box3 |
 | [`configure-nginx-box2-edge.sh`](configure-nginx-box2-edge.sh) | Edge proxy Box2 → Box3 |

@@ -3,3 +3,5 @@
 admin.env
 runner.env
 github-oauth.env
+oidc.env
+__pycache__/
