@@ -98,16 +98,11 @@ python3 deploy/oidc.py break-glass            # root + runner tokens with the Id
 
 ## GitHub sign-in
 
-Currently still **direct** OmniAuth: OAuth App in org **qa-guru** → callback `https://gitlab.qa.guru/users/auth/github/callback`, secrets in `~/.config/gitlab/github-oauth.env`. Kept alive on purpose until brokering works — removing it first would leave GitHub users with no route.
+**Brokering** (GitHub → Keycloak → GitLab). GitLab's sign-in page offers only `openid_connect`. The GitHub button lives on Keycloak (`https://auth.qa.guru/realms/qaguru/broker/github/endpoint`). Direct OmniAuth is gone (`disable-github-direct`).
 
-Target is brokering (GitHub → Keycloak → GitLab). It cannot be scripted: GitHub exposes no API to create or edit an OAuth App. To finish:
+`svasenkov` is pre-linked in Keycloak to GitHub user `9194170` so the first broker login does not mint a second realm user (GitHub email ≠ school email).
 
-1. New OAuth App in org `qa-guru`, callback `https://auth.qa.guru/realms/qaguru/broker/github/endpoint`.
-2. `KC_GITHUB_CLIENT_ID` / `KC_GITHUB_CLIENT_SECRET` into `~/.config/auth-qa-guru/keycloak.env`.
-3. `python3 deploy/oidc.py seed-idp` — enables the IdP and refreshes `/etc/keycloak/keycloak.env`.
-4. `python3 deploy/oidc.py disable-github-direct` — drops `github` from GitLab's providers.
-
-`enable-github-omniauth.sh` is **superseded**: its managed `gitlab.rb` block also assigned `omniauth_providers`, so two blocks would fight and the last assignment would win. `oidc.py configure` removes it and keeps a single block.
+`enable-github-omniauth.sh` is **superseded**. Re-apply brokering after a realm re-import: credentials in `~/.config/auth-qa-guru/keycloak.env`, then `python3 deploy/oidc.py seed-idp`.
 
 ## Smoke
 
