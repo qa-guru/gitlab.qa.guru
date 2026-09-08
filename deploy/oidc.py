@@ -589,7 +589,7 @@ if keep_github and gh_env.get("GITHUB_APP_ID"):
 providers.append(
     "  {\n"
     "    'name' => 'openid_connect',\n"
-    "    'label' => 'QA Guru',\n"
+    "    'label' => 'QA.GURU',\n"
     "    'args' => {\n"
     "      'name' => 'openid_connect',\n"
     "      'scope' => ['openid', 'profile', 'email'],\n"
