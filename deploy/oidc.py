@@ -589,7 +589,7 @@ if keep_github and gh_env.get("GITHUB_APP_ID"):
 providers.append(
     "  {\n"
     "    'name' => 'openid_connect',\n"
-    "    'label' => 'qa.guru',\n"
+    "    'label' => 'QA Guru',\n"
     "    'args' => {\n"
     "      'name' => 'openid_connect',\n"
     "      'scope' => ['openid', 'profile', 'email'],\n"
@@ -704,7 +704,7 @@ def wait_signin(expect: set[str], absent: set[str] = frozenset(), timeout: int =
     return last
 
 
-def cmd_configure(keep_github: bool = True) -> int:
+def cmd_configure(keep_github: bool = False) -> int:
     print(f"==> backup /etc/gitlab/gitlab.rb on {BOX3}")
     stamp = ssh(BOX3, "set -euo pipefail\nts=$(date -u +%Y%m%dT%H%M%SZ)\nsudo cp -a /etc/gitlab/gitlab.rb /etc/gitlab/.p5-gitlab.rb.$ts\necho $ts\n").strip()
     print(f"   /etc/gitlab/.p5-gitlab.rb.{stamp}")
