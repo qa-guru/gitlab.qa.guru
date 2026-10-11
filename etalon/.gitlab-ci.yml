@@ -3,43 +3,69 @@ stages:
   - report
 
 variables:
-  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
-  BASE_URL: "https://reference-app.autotests.ai/"
-  API_BASE_URL: "https://reference-app.autotests.ai/"
+  MULTISTACK_REPOSITORY: "https://github.com/autotests-ai/autotests-ai-multistack-app.git"
+  MULTISTACK_COMMIT: "a8255c562288b9b3cdc13fea335067b69e37aa4f"
+  TESTS_UI_LIBRARY: "selenide"
+  RUN_MOCK: "false"
+  RUN_API: "true"
+  RUN_E2E: "true"
+  RUN_SCREENSHOTS: "true"
+  UPDATE_MOCK_SCREENSHOTS: "false"
+  UPDATE_STAGE_SCREENSHOTS: "false"
+  UPDATE_E2E_SCREENSHOTS: "false"
+  PUBLIC_HOST: "autotests.ai"
+  STAGE_PUBLIC_HOST: "stage.autotests.ai"
+  SCREENSHOT_OS: "linux"
+  SCREENSHOT_BROWSER: "chrome"
 
-.test_template: &test_template
-  stage: test
+.multistack_checkout:
   tags: [docker, java21, selenoid, box2]
-  image: eclipse-temurin:21-jdk
   before_script:
-    - cd tests && chmod +x gradlew
+    - apt-get update -qq && apt-get install -y --no-install-recommends git curl ca-certificates
+    - mkdir -p multistack
+    - git -C multistack init -q
+    - git -C multistack remote add origin "$MULTISTACK_REPOSITORY"
+    - git -C multistack fetch --depth 1 origin "$MULTISTACK_COMMIT"
+    - git -C multistack checkout --detach FETCH_HEAD
+    - test "$(git -C multistack rev-parse HEAD)" = "$MULTISTACK_COMMIT"
+
+test:tests-lane:
+  extends: .multistack_checkout
+  stage: test
+  image: eclipse-temurin:21-jdk
+  timeout: 90 minutes
+  script:
+    - ': "${SELENOID_WEBDRIVER_URL:?Configure the masked Selenoid WebDriver CI variable}"'
+    - cd multistack
+    - bash tests/jenkins/gha-tests-path.sh prepare
+    - |
+      status=0
+      for stand in stage prod; do
+        bash tests/jenkins/gha-tests-path.sh api "$stand" || status=1
+        bash tests/jenkins/gha-tests-path.sh e2e "$stand" || status=1
+      done
+      exit "$status"
   artifacts:
     when: always
-    paths: [tests/build/allure-results/]
+    paths: [multistack/allure-results-ci/]
     expire_in: 14 days
 
-test:api:
-  <<: *test_template
-  script:
-    - ./gradlew testApi --no-daemon -DpyramidStand=reference_prod -DbaseUrl=${BASE_URL} -DapiBaseUrl=${API_BASE_URL} -Djunit.jupiter.execution.parallel.enabled=true -Djunit.jupiter.execution.parallel.config.strategy=fixed -Djunit.jupiter.execution.parallel.config.fixed.parallelism=5
-
-test:e2e:
-  <<: *test_template
-  allow_failure: true
-  script:
-    - ./gradlew testE2e --no-daemon -DpyramidStand=reference_prod -DbrowserVersion=148 -DbaseUrl=${BASE_URL} -DapiBaseUrl=${API_BASE_URL} -Djunit.jupiter.execution.parallel.enabled=true -Djunit.jupiter.execution.parallel.config.strategy=fixed -Djunit.jupiter.execution.parallel.config.fixed.parallelism=5 -DcloseBrowserAfterEach=true
-
 allure:report:
+  extends: .multistack_checkout
   stage: report
-  tags: [docker, box2]
-  image: eclipse-temurin:21-jdk
-  needs: [test:api, test:e2e]
+  image: node:26-bookworm
+  needs:
+    - job: test:tests-lane
+      artifacts: true
   script:
-    - apt-get update -qq && apt-get install -y -qq wget unzip
-    - wget -q https://github.com/allure-framework/allure2/releases/download/2.29.0/allure-2.29.0.tgz -O /tmp/allure.tgz
-    - tar -xzf /tmp/allure.tgz -C /opt && ln -sf /opt/allure-2.29.0/bin/allure /usr/local/bin/allure
-    - allure generate tests/build/allure-results -o allure-report --clean
+    - cd multistack/tests/java/tests-java-junit5-rest_assured-selenide
+    - npm ci --no-audit --no-fund
+    - mkdir -p build/allure-results
+    - cp -R ../../../allure-results-ci/. build/allure-results/
+    - npx --no-install allure generate build/allure-results -o build/reports/allure-report/allureReport --config allurerc.mjs
   artifacts:
-    paths: [allure-report/]
+    expose_as: "Allure 3 report"
+    paths:
+      - multistack/tests/java/tests-java-junit5-rest_assured-selenide/build/reports/allure-report/allureReport/
     expire_in: 14 days
   when: always
