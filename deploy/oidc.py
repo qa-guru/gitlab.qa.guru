@@ -18,6 +18,7 @@ import argparse
 import html
 import json
 import os
+import re
 import ssl
 import subprocess
 import sys
@@ -828,7 +829,14 @@ def start_provider(sess: Session, provider: str) -> tuple[str, str, int]:
     form = next((f for f in forms if f"/users/auth/{provider}" in f.get("action", "")), None)
     if form is None:
         raise SystemExit(f"no {provider} button on the sign-in page")
-    payload = urllib.parse.urlencode(form["inputs"]).encode()
+    inputs = dict(form["inputs"])
+    if not inputs.get("authenticity_token"):
+        # With auto_sign_in the button's token is rendered empty and JS fills it
+        # from <meta name="csrf-token"> before submit — do the same for non-JS clients.
+        meta = re.search(r'<meta name="csrf-token" content="([^"]+)"', page)
+        if meta:
+            inputs["authenticity_token"] = meta.group(1)
+    payload = urllib.parse.urlencode(inputs).encode()
     return sess.fetch(_join(url, form["action"]), payload)
 
 
@@ -866,7 +874,7 @@ def oidc_login(username: str, password: str) -> dict[str, Any]:
 
 def password_login(username: str, password: str) -> dict[str, Any]:
     sess = Session()
-    url, page, _ = sess.fetch(f"{GITLAB_URL}/users/sign_in")
+    url, page, _ = sess.fetch(f"{GITLAB_URL}/users/sign_in?auto_sign_in=false")
     forms = parse_forms(page)
     form = next((f for f in forms if "user[login]" in f["inputs"] or "user[password]" in f["inputs"]), None)
     if form is None:
@@ -1054,7 +1062,7 @@ def cmd_break_glass() -> int:
             check(f"runner token {i} still valid with IdP down", code in {200, 201}, f"HTTP {code}")
 
         sess = Session()
-        url, page, _ = sess.fetch(f"{GITLAB_URL}/users/sign_in")
+        url, page, _ = sess.fetch(f"{GITLAB_URL}/users/sign_in?auto_sign_in=false")
         check("sign-in page still served", "user[login]" in page, "password form present")
     finally:
         print("==> start Keycloak back")

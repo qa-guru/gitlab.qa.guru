@@ -96,6 +96,8 @@ python3 deploy/oidc.py break-glass            # root + runner tokens with the Id
 
 `uid_field` and `gitlab_username_claim` are both `preferred_username`, so JIT users get the bare handle — GitLab does not append a suffix the way Sonar does.
 
+**`/users/sign_in` goes straight to Keycloak** (`omniauth_auto_sign_in_with_provider = 'openid_connect'`): the local password form only trapped students typing their IdP password. Break-glass `root` signs in at `https://gitlab.qa.guru/users/sign_in?auto_sign_in=false`. The auto-submit page renders the provider form with an empty `authenticity_token` and JS fills it from `<meta name="csrf-token">`; `oidc.py` does the same for its non-JS sign-in.
+
 ## GitHub sign-in
 
 **Brokering** (GitHub → Keycloak → GitLab). GitLab's sign-in page offers only `openid_connect`. The GitHub button lives on Keycloak (`https://auth.qa.guru/realms/qaguru/broker/github/endpoint`). Direct OmniAuth is gone (`disable-github-direct`).
